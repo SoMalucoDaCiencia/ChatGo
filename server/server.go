@@ -83,7 +83,7 @@ func handleConnection(conn net.Conn, buf string) {
 	case ChatGo.Users:
 	case ChatGo.Logout:
 		tc.Lock()
-		u
+		//u
 		tc.Unlock()
 
 	default:
