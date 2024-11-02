@@ -14,12 +14,13 @@ import (
 func main() {
 
 	// Usuário logado(se estiver) e conexão aberta
-	localUser := ChatGo.NewUser()
+	localUser := ChatGo.NullUser()
 	var conn net.Conn
 
-	scanner := bufio.NewScanner(os.Stdin)
 	println(ChatGo.WelcomeMsg)
+	scanner := bufio.NewScanner(os.Stdin)
 	for i := 1; ; i++ {
+		var err error
 		fmt.Printf("%sChatGo(%d) > %s", ChatGo.Bold, i, ChatGo.Reset)
 		if !scanner.Scan() {
 			ChatGo.EmitError(scanner.Err(), "")
@@ -30,65 +31,70 @@ func main() {
 		input := strings.Split(original, " ")
 		switch input[0] {
 
-		// Começa o sign up caso n haja um usuário logado
+		// Começa o sign up caso não haja um usuário logado
 		case ChatGo.SignUp:
-			if localUser.Name != "" {
+			if localUser.IsLogged() {
 				println(ChatGo.AlreadyLoggedInMsg)
 				continue
 			}
-			localUser = ChatGo.GetUser(original)
-			if err := SendServer(conn, original, localUser); err != nil {
+			localUser, err = ChatGo.GetUser(original)
+			if err != nil {
+				ChatGo.EmitError(err, "")
+				continue
+			}
+			if conn, err = SendServer(original, localUser); err != nil {
 				ChatGo.EmitError(err, "server")
-				localUser = ChatGo.NewUser()
+				localUser = ChatGo.NullUser()
 			}
 			break
 
 		// Começa o login caso n haja um usuário logado
 		case ChatGo.Login:
-			if localUser.Name != "" {
+			if localUser.IsLogged() {
 				println(ChatGo.AlreadyLoggedInMsg)
 				continue
 			}
-			localUser = ChatGo.GetUser(original)
-			if localUser.Name != "" {
-				//if err := SendServer(conn, original, localUser); err != nil {
-				//	ChatGo.EmitError(err, "server")
-				//	localUser = ChatGo.NewUser()
-				//}
+			var err error
+			localUser, err = ChatGo.GetUser(original)
+			if err != nil {
+				ChatGo.EmitError(err, "")
+				continue
 			}
-			println(localUser.Name, localUser.Password, localUser.Uuid)
+			if conn, err = SendServer(original, localUser); err != nil {
+				ChatGo.EmitError(err, "server")
+				localUser = ChatGo.NullUser()
+			}
+			break
+
+		// Desloga o usuário.
+		case ChatGo.Logout:
+			if !localUser.IsLogged() {
+				println(ChatGo.NotLoggedInMsg)
+				continue
+			}
+			if conn, err = SendServer(original, localUser); err != nil {
+				ChatGo.EmitError(err, "")
+				continue
+			}
+			localUser = ChatGo.NullUser()
+			if err := conn.Close(); err != nil {
+				ChatGo.EmitError(err, "")
+			}
+			conn = nil
 			break
 
 		// Send messages or get users list
 		case ChatGo.Message:
 		case ChatGo.Hidden:
 		case ChatGo.Users:
-			if localUser.Name == "" {
+			if !localUser.IsLogged() {
 				println(ChatGo.NotLoggedInMsg)
 				continue
 			}
-			if err := SendServer(conn, original, localUser); err != nil {
+			if conn, err = SendServer(original, localUser); err != nil {
 				ChatGo.EmitError(err, "server")
 			}
 			break
-
-		// Desloga o usuário.
-		case ChatGo.Logout:
-			if localUser.Name == "" {
-				println(ChatGo.NotLoggedInMsg)
-				continue
-			}
-			if err := SendServer(conn, original, localUser); err != nil {
-				ChatGo.EmitError(err, "server")
-				localUser = ChatGo.NewUser()
-				continue
-			}
-			localUser = ChatGo.NewUser()
-			if err := conn.Close(); err != nil {
-				ChatGo.EmitError(err, "")
-			}
-			conn = nil
-			ChatGo.ClearConsole()
 
 		// Mostra um guia simples no console.
 		case ChatGo.Help:
@@ -102,6 +108,14 @@ func main() {
 
 		// Termina o programa.
 		case ChatGo.Exit:
+			if !localUser.IsLogged() {
+				if conn, err = SendServer(original, localUser); err != nil {
+					ChatGo.EmitError(err, "server")
+					ChatGo.WriteLog(ChatGo.LogErr, "falha ao realizar logout para sair", "internal")
+					continue
+				}
+				localUser = ChatGo.NullUser()
+			}
 			os.Exit(0)
 
 		// Comando n reconhecido.
@@ -111,11 +125,11 @@ func main() {
 	}
 }
 
-func SendServer(conn net.Conn, input string, _ ChatGo.User) error {
+func SendServer(input string, _ ChatGo.User) (net.Conn, error) {
 
-	err := ChatGo.EnsureConn(conn)
+	conn, err := net.Dial("tcp", ":1110")
 	if err != nil {
-		ChatGo.EmitError(err, "server")
+		return nil, err
 	}
 
 	_, err = conn.Write([]byte(input))
@@ -130,7 +144,7 @@ func SendServer(conn net.Conn, input string, _ ChatGo.User) error {
 	}
 
 	if r := string(reply); r == "error" {
-		return errors.New(r)
+		return nil, errors.New(r)
 	}
-	return nil
+	return conn, nil
 }

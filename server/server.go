@@ -31,7 +31,7 @@ func main() {
 		panic(err)
 	}
 	for _, u := range list {
-		allUsers[u.Uuid] = u
+		allUsers[*u.Uuid] = u
 	}
 
 	ln, err := net.Listen("tcp", ":1110")
@@ -48,7 +48,8 @@ func main() {
 		buf := make([]byte, ChatGo.ClientBuffer)
 		_, err = conn.Read(buf)
 		if err != nil {
-			return
+			ChatGo.EmitError(err, "")
+			continue
 		}
 
 		tc.Begin()
@@ -60,7 +61,7 @@ func main() {
 }
 
 func handleConnection(conn net.Conn, buf string) {
-	// Verifica se a mensagem n é vazia e lida com os erros
+
 	input := strings.Split(buf, " ")
 	if len(buf)*len(input) == 0 {
 		_, err := conn.Write([]byte(ChatGo.EmptyMessageMsg))
@@ -76,17 +77,23 @@ func handleConnection(conn net.Conn, buf string) {
 	}
 
 	switch input[0] {
-	case ChatGo.Login:
-	case ChatGo.SignUp:
-	case ChatGo.Message:
-	case ChatGo.Hidden:
-	case ChatGo.Users:
-	case ChatGo.Logout:
-		tc.Lock()
-		//u
-		tc.Unlock()
-
+	//case ChatGo.Login:
+	//case ChatGo.SignUp:
+	//case ChatGo.Message:
+	//case ChatGo.Hidden:
+	//case ChatGo.Users:
+	//case ChatGo.Logout:
 	default:
+		s, _ := ChatGo.WrapInColor("client:", nil)
+		tc.Lock()
+		println(s, strings.Join(input, " "))
+		tc.Unlock()
+	}
+
+	_, err := conn.Write([]byte("ok"))
+	if err != nil {
+		ChatGo.WriteLog(ChatGo.LogErr, err.Error(), "internal")
+		err = nil
 	}
 }
 
