@@ -3,7 +3,7 @@ package share
 // Comandos permitidos antes do login
 const (
 	Login  = "login"
-	SignUp = "signUp"
+	SignUp = "signup"
 )
 
 // Comandos permitidos após o login

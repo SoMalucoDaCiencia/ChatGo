@@ -21,7 +21,11 @@ func main() {
 	scanner := bufio.NewScanner(os.Stdin)
 	for i := 1; ; i++ {
 		var err error
-		fmt.Printf("%sChatGo(%d) > %s", ChatGo.Bold, i, ChatGo.Reset)
+		var u string
+		if localUser.IsLogged() {
+			u = fmt.Sprintf("[%s] ", localUser.Name)
+		}
+		fmt.Printf("%sChatGo(%d) %s> %s", ChatGo.Bold, i, u, ChatGo.Reset)
 		if !scanner.Scan() {
 			ChatGo.EmitError(scanner.Err(), "")
 		}
@@ -42,6 +46,7 @@ func main() {
 				ChatGo.EmitError(err, "")
 				continue
 			}
+			original = original + " " + localUser.Password
 			if conn, err = SendServer(original, localUser); err != nil {
 				ChatGo.EmitError(err, "server")
 				localUser = ChatGo.NullUser()
@@ -60,6 +65,7 @@ func main() {
 				ChatGo.EmitError(err, "")
 				continue
 			}
+			original = original + " " + localUser.Password
 			if conn, err = SendServer(original, localUser); err != nil {
 				ChatGo.EmitError(err, "server")
 				localUser = ChatGo.NullUser()
@@ -143,8 +149,13 @@ func SendServer(input string, _ ChatGo.User) (net.Conn, error) {
 		ChatGo.EmitError(err, "server")
 	}
 
-	if r := string(reply); r == "error" {
-		return nil, errors.New(r)
+	replySplit := strings.Split(string(reply), " -m ")
+	switch replySplit[0] {
+	case "ok":
+		println(replySplit[1])
+		break
+	case "error":
+		return nil, errors.New(replySplit[1])
 	}
 	return conn, nil
 }
