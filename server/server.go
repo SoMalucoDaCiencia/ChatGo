@@ -41,6 +41,12 @@ func main() {
 	for _, u := range list {
 		userDB[u.Name] = &u
 	}
+	if online == nil {
+		online = map[string]string{}
+	}
+	if msgStack == nil {
+		msgStack = map[string][]string{}
+	}
 
 	ln, err := net.Listen("tcp", ":1110")
 	if err != nil {
