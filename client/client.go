@@ -152,7 +152,7 @@ func main() {
 				}
 				localUser = ChatGo.NullUser()
 			}
-			Cleanup(true, sigs)
+			Cleanup(sigs)
 			os.Exit(0)
 
 		// Comando n reconhecido.
