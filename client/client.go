@@ -8,14 +8,41 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
+	"time"
 )
+
+var localUser = ChatGo.NullUser()
 
 func main() {
 
 	// Usuário logado(se estiver) e conexão aberta
-	localUser := ChatGo.NullUser()
 	var conn net.Conn
+
+	// Canal para capturar os sinais
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
+
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Println("Recuperado de um panic:", r)
+		}
+		sigs <- syscall.SIGABRT
+	}()
+
+	// Goroutine para capturar o sinal e executar o código de limpeza
+	go Cleanup(sigs)
+
+	go func() {
+		for {
+			if localUser.IsLogged() {
+
+			}
+			time.Sleep(500 * time.Millisecond)
+		}
+	}()
 
 	println(ChatGo.WelcomeMsg)
 	scanner := bufio.NewScanner(os.Stdin)
@@ -78,13 +105,16 @@ func main() {
 				println(ChatGo.NotLoggedInMsg)
 				continue
 			}
-			if conn, err = SendServer(original, localUser); err != nil {
+			conn, err = SendServer(original, localUser)
+			if err != nil && err.Error() != "you are not logged in" {
 				ChatGo.EmitError(err, "")
 				continue
 			}
 			localUser = ChatGo.NullUser()
-			if err := conn.Close(); err != nil {
-				ChatGo.EmitError(err, "")
+			if conn != nil {
+				if err = conn.Close(); err != nil {
+					ChatGo.EmitError(err, "")
+				}
 			}
 			conn = nil
 			break
@@ -122,6 +152,7 @@ func main() {
 				}
 				localUser = ChatGo.NullUser()
 			}
+			Cleanup(true, sigs)
 			os.Exit(0)
 
 		// Comando n reconhecido.
@@ -150,6 +181,9 @@ func SendServer(input string, _ ChatGo.User) (net.Conn, error) {
 	}
 
 	replySplit := strings.Split(string(reply), " -m ")
+	for i := range replySplit {
+		replySplit[i] = strings.ReplaceAll(replySplit[i], "\x00", "")
+	}
 	switch replySplit[0] {
 	case "ok":
 		println(replySplit[1])
@@ -158,4 +192,17 @@ func SendServer(input string, _ ChatGo.User) (net.Conn, error) {
 		return nil, errors.New(replySplit[1])
 	}
 	return conn, nil
+}
+
+func Cleanup(sigs chan os.Signal) {
+	<-sigs
+	println("passou aqui")
+	if localUser.IsLogged() {
+		_, err := SendServer("logout", localUser)
+		if err != nil && err.Error() != "you are not logged in" {
+			ChatGo.EmitError(err, "")
+			os.Exit(1)
+		}
+	}
+	os.Exit(0)
 }

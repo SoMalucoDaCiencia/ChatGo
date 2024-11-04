@@ -102,7 +102,7 @@ func PrintHelp(isLogged bool) {
 	sb.WriteString(" > Commands:\n")
 	if isLogged {
 		sb.WriteString("   - login -u <USER_NAME> -p: Login to server.\n")
-		sb.WriteString("   - signUp -u <USER_NAME> -p: SignUp to server.\n")
+		sb.WriteString("   - signup -u <USER_NAME> -p: SignUp to server.\n")
 	} else {
 		sb.WriteString("   - msg: Logout from the server.\n")
 		sb.WriteString("   - hidden <TARGET_USER>: Logout from the server.\n")

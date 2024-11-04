@@ -8,8 +8,15 @@ import (
 	mgu "github.com/artking28/myGoUtils"
 	"net"
 	"os"
+	"os/signal"
+	"regexp"
 	"strings"
+	"syscall"
 )
+
+var filePath = "users.json"
+
+var rxp = regexp.MustCompile(`^[a-zA-Z0-9_]`)
 
 // map[username]User
 var userDB map[string]*ChatGo.User
@@ -23,13 +30,23 @@ var tc = mgu.NewThreadControl(200)
 
 func main() {
 
-	filePath := "users.json"
+	if userDB == nil {
+		userDB = map[string]*ChatGo.User{}
+	}
+	if online == nil {
+		online = map[string]string{}
+	}
+	if msgStack == nil {
+		msgStack = map[string][]string{}
+	}
+
 	c, err := os.ReadFile(filePath)
-	if err != nil {
+	if err != nil || c == nil {
 		if !os.IsNotExist(err) {
 			panic(err)
 		}
-		err := os.WriteFile(filePath, []byte("[]"), 777)
+		c = []byte("[]")
+		err := os.WriteFile(filePath, c, 0777)
 		if err != nil {
 			panic(err)
 		}
@@ -41,12 +58,20 @@ func main() {
 	for _, u := range list {
 		userDB[u.Name] = &u
 	}
-	if online == nil {
-		online = map[string]string{}
-	}
-	if msgStack == nil {
-		msgStack = map[string][]string{}
-	}
+
+	// Canal para capturar os sinais
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
+
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Println("Recuperado de um panic:", r)
+		}
+		sigs <- syscall.SIGABRT
+	}()
+
+	// Goroutine para capturar o sinal e executar o código de limpeza
+	go Cleanup(sigs)
 
 	ln, err := net.Listen("tcp", ":1110")
 	if err != nil {
@@ -91,7 +116,15 @@ func handleConnection(conn net.Conn, buf string) {
 		return
 	}
 
-	LogCommand(buf, connAddress)
+	s := fmt.Sprintf("from: [%s%s%s] command: [%s%s%s]",
+		ChatGo.DGray, connAddress, ChatGo.Reset,
+		ChatGo.DGray, buf, ChatGo.Reset,
+	)
+	ChatGo.WriteLog(ChatGo.LogInfo, s, "")
+
+	for i := range input {
+		input[i] = strings.ReplaceAll(input[i], "\x00", "")
+	}
 	switch input[0] {
 	case ChatGo.Login:
 		if u := userDB[input[2]]; u == nil || u.Password != input[4] {
@@ -102,7 +135,7 @@ func handleConnection(conn net.Conn, buf string) {
 		online[connAddress] = input[2]
 		tc.Unlock()
 		CloseOk(&conn, "sign-in complete!")
-		fallthrough
+		break
 
 	case ChatGo.SignUp:
 		if u := userDB[input[2]]; u != nil {
@@ -114,7 +147,7 @@ func handleConnection(conn net.Conn, buf string) {
 		online[connAddress] = input[2]
 		tc.Unlock()
 		CloseOk(&conn, "sign-up complete! You are now automatically logged in")
-		fallthrough
+		break
 
 	case ChatGo.Message:
 		u := userDB[online[connAddress]]
@@ -124,7 +157,7 @@ func handleConnection(conn net.Conn, buf string) {
 			msgStack[k] = append(msgStack[k], msg)
 		}
 		tc.Unlock()
-		fallthrough
+		break
 
 	case ChatGo.Hidden:
 		uOrigin := userDB[online[connAddress]]
@@ -138,19 +171,15 @@ func handleConnection(conn net.Conn, buf string) {
 		msgStack[uOrigin.Name] = append(msgStack[uOrigin.Name], msg)
 		msgStack[uTarget] = append(msgStack[uTarget], msg)
 		tc.Unlock()
-		fallthrough
+		break
 
 	case ChatGo.Users:
-		users := mgu.MapKeys(userDB)
-		tc.Lock()
-		for k := range msgStack {
-			msgStack[k] = append(msgStack[k], users...)
-		}
-		tc.Unlock()
-		fallthrough
+		users := mgu.MapValues(online)
+		CloseOk(&conn, strings.Join(users, "\n"))
+		break
 
 	case ChatGo.Logout:
-		if u := userDB[input[2]]; u != nil {
+		if u := userDB[online[connAddress]]; u != nil {
 			CloseErr(&conn, errors.New("incorrect username"))
 			return
 		}
@@ -159,7 +188,7 @@ func handleConnection(conn net.Conn, buf string) {
 			return
 		}
 		delete(online, connAddress)
-		fallthrough
+		break
 
 	default:
 		ChatGo.WriteLog(ChatGo.LogWarn, "unrecognized command: "+buf, "")
@@ -168,16 +197,22 @@ func handleConnection(conn net.Conn, buf string) {
 	}
 }
 
-func LogCommand(msg, connAddress string) {
-	s := fmt.Sprintf("from: [%s%s%s] command: [%s%s%s]",
-		ChatGo.DGray, connAddress, ChatGo.Reset,
-		ChatGo.DGray, msg, ChatGo.Reset,
-	)
-	ChatGo.WriteLog(ChatGo.LogInfo, s, "")
+func Cleanup(sigs chan os.Signal) {
+	<-sigs
+	list := mgu.VecMap(mgu.MapValues(userDB), func(t *ChatGo.User) ChatGo.User {
+		return *t
+	})
+	j, _ := json.Marshal(list)
+	err := os.WriteFile(filePath, j, 0777)
+	if err != nil {
+		ChatGo.EmitError(err, "")
+		os.Exit(1)
+	}
+	os.Exit(0)
 }
 
 func CloseOk(conn *net.Conn, msg string) {
-	_, err := (*conn).Write([]byte("ok -m" + msg))
+	_, err := (*conn).Write([]byte("ok -m " + msg))
 	if err != nil {
 		ChatGo.WriteLog(ChatGo.LogErr, err.Error(), "internal")
 		err = nil
