@@ -1,6 +1,7 @@
 package share
 
 import (
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"golang.org/x/crypto/ssh/terminal"
@@ -19,7 +20,17 @@ func GetHiddenInput() string {
 		panic(err)
 	}
 	println()
-	return string(bytes)
+	for len(bytes) < 5 {
+		println(" > Por favor, digite uma senha de no mínimo 5 dígitos.")
+		bytes, err = terminal.ReadPassword(int(os.Stdin.Fd()))
+		if err != nil {
+			panic(err)
+		}
+		println()
+	}
+	h := sha256.New()
+	h.Write(bytes)
+	return fmt.Sprintf("%x", h.Sum(nil))
 }
 
 func ClearConsole() {

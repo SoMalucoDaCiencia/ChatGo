@@ -1,5 +1,5 @@
-github.com/artking28/myGoUtils v1.2.2 h1:zmhKbDg0fht0FFpMPZSJ5H/OuqwiaynwUPIh+xoODdk=
-github.com/artking28/myGoUtils v1.2.2/go.mod h1:aKJpD4r0Dg+gHfNtXJhAi6B+a1N0b2qqd+lpN+jVBWg=
+github.com/artking28/myGoUtils v1.3.0 h1:8edglM2r8yCwgDg99bvEVpJfaA2GUCIsm0po4darGDY=
+github.com/artking28/myGoUtils v1.3.0/go.mod h1:aKJpD4r0Dg+gHfNtXJhAi6B+a1N0b2qqd+lpN+jVBWg=
 github.com/google/uuid v1.6.0 h1:NIvaJDMOsjHA8n1jAhLSgzrAzy1Hgr+hNrb57e+94F0=
 github.com/google/uuid v1.6.0/go.mod h1:TIyPZe4MgqvfeYDBFedMoGGpEw/LqOeaOT+nhxU+yHo=
 golang.org/x/crypto v0.28.0 h1:GBDwsMXVQi34v5CCYUm2jkJvu4cbtru2U4TN2PSyQnw=
