@@ -12,6 +12,8 @@ const (
 	Hidden  = "hidden"
 	Users   = "users"
 	Logout  = "logout"
+	Fetch   = "fetch"
+	Refresh = "refresh"
 )
 
 // Comandos permitidos a qualquer momento
@@ -19,6 +21,12 @@ const (
 	Help  = "help"
 	Exit  = "exit"
 	Clear = "clear"
+)
+
+const (
+	StatusSuccess = 1
+	StatusNeutral = 0
+	StatusError   = -1
 )
 
 // Tamanho de buffers para usuário e servidor

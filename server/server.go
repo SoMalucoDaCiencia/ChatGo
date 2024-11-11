@@ -9,36 +9,43 @@ import (
 	"net"
 	"os"
 	"os/signal"
-	"regexp"
 	"strings"
 	"syscall"
 )
 
-var filePath = "users.json"
+var (
+	cachePath = ".cache"
+	userCache = fmt.Sprintf("%s%cusers.json", cachePath, os.PathSeparator)
+	msgCache  = fmt.Sprintf("%s%cmessages.txt", cachePath, os.PathSeparator)
 
-var rxp = regexp.MustCompile(`^[a-zA-Z0-9_]`)
+	// map[username]User
+	userDB = map[string]*ChatGo.User{}
 
-// map[username]User
-var userDB = map[string]*ChatGo.User{}
+	// map[address]username
+	online = map[string]string{}
 
-// map[address]username
-var online = map[string]string{}
+	//all = []string
 
-var msgStack = map[string][]string{}
+	msgStack = map[string][]string{}
 
-var tc = mgu.NewThreadControl(200)
+	tc = mgu.NewThreadControl(200)
+)
 
 func main() {
 
 	// Salva o "cache" de usuários em memória
 	// ===========================================>
-	c, err := os.ReadFile(filePath)
+	err := os.MkdirAll(".cache", 0777)
+	if err != nil {
+		panic(err)
+	}
+	c, err := os.ReadFile(userCache)
 	if err != nil || c == nil {
 		if !os.IsNotExist(err) {
 			panic(err)
 		}
 		c = []byte("[]")
-		err := os.WriteFile(filePath, c, 0777)
+		err := os.WriteFile(userCache, c, 0777)
 		if err != nil {
 			panic(err)
 		}
@@ -93,19 +100,18 @@ func main() {
 
 		tc.Begin()
 		go func() {
-			handleConnection(conn, string(buf))
+			handleConnection(conn, buf)
 			tc.Done()
 		}()
 	}
 }
 
-func handleConnection(conn net.Conn, buf string) {
+func handleConnection(conn net.Conn, buf []byte) {
 
 	// Pega a origem do usuário e valida o input.
 	// ==============================================================>
 	connAddress := conn.RemoteAddr().String()
-	input := strings.Split(buf, " ")
-	if len(buf)*len(input) == 0 {
+	if len(buf) == 0 {
 		_, err := conn.Write([]byte(ChatGo.EmptyMessageMsg))
 		if err != nil {
 			ChatGo.WriteLog(ChatGo.LogErr, err.Error(), "internal")
@@ -117,21 +123,17 @@ func handleConnection(conn net.Conn, buf string) {
 		}
 		return
 	}
+	command := ChatGo.Parse(buf)
 
 	// Registra um log de comandos de usuários.
 	// ==============================================================>
 	s := fmt.Sprintf("from: [%s%s%s] command: [%s%s%s]",
 		ChatGo.DGray, connAddress, ChatGo.Reset,
-		ChatGo.DGray, buf, ChatGo.Reset,
+		ChatGo.DGray, command.GetUserInput(), ChatGo.Reset,
 	)
 	ChatGo.WriteLog(ChatGo.LogInfo, s, "")
 
-	// Limpa a string advinda do buffer retirando caracteres nulos.
-	// ==============================================================>
-	for i := range input {
-		input[i] = strings.ReplaceAll(input[i], "\x00", "")
-	}
-	switch input[0] {
+	switch command.Control {
 
 	// Começa o login de um usuário
 	// ================================================>
@@ -141,9 +143,9 @@ func handleConnection(conn net.Conn, buf string) {
 			return
 		}
 		tc.Lock()
-		online[connAddress] = input[2]
+		online[command.Token] = input[2]
 		tc.Unlock()
-		CloseOk(&conn, "sign-in complete!")
+		CloseOk(&conn, "sign-in complete!", &command.Token)
 		break
 
 	// Começa o processo de sign-in e ja loga o usuário se bem-sucedido
@@ -155,27 +157,40 @@ func handleConnection(conn net.Conn, buf string) {
 		}
 		tc.Lock()
 		userDB[input[2]] = mgu.Ptr(ChatGo.NewUser(input[2], input[4]))
-		online[connAddress] = input[2]
+		online[sessionID] = input[2]
 		tc.Unlock()
-		CloseOk(&conn, "sign-up complete! You are now automatically logged in")
+		CloseOk(&conn, "sign-up complete! You are now automatically logged in", &sessionID)
 		break
+
+	case ChatGo.Fetch:
+		uOrigin := userDB[online[sessionID]]
+		if uOrigin != nil {
+			messages := msgStack[uOrigin.Name]
+			CloseOk(&conn, strings.Join(messages, "\n"), nil)
+			break
+		}
+		CloseOk(&conn, "", nil)
+		break
+
+	case ChatGo.Refresh:
 
 	// Envia uma mensagem pata o chat global.
 	// ======================================================>
 	case ChatGo.Message:
-		u := userDB[online[connAddress]]
+		u := userDB[online[sessionID]]
 		msg := fmt.Sprintf("%s%s: %s", ChatGo.Bold, ChatGo.WrapColor(u.Name, u.Color), input[1])
 		tc.Lock()
 		for k := range msgStack {
 			msgStack[k] = append(msgStack[k], msg)
 		}
 		tc.Unlock()
+		CloseOk(&conn, "hidden message sent", nil)
 		break
 
 	// Envia uma mensagem oculta de um usuário para outro
 	// ======================================================>
 	case ChatGo.Hidden:
-		uOrigin := userDB[online[connAddress]]
+		uOrigin := userDB[online[sessionID]]
 		uTarget := userDB[input[1]].Name
 		msg := fmt.Sprintf("%s(private)%s %s%s:",
 			ChatGo.DGray, ChatGo.Reset, ChatGo.Bold,
@@ -186,33 +201,35 @@ func handleConnection(conn net.Conn, buf string) {
 		msgStack[uOrigin.Name] = append(msgStack[uOrigin.Name], msg)
 		msgStack[uTarget] = append(msgStack[uTarget], msg)
 		tc.Unlock()
+		CloseOk(&conn, "message sent", nil)
 		break
 
 	// Lista todos os usuários logados para os usuários
 	// ====================================================>
 	case ChatGo.Users:
 		users := mgu.MapValues(online)
-		CloseOk(&conn, strings.Join(users, "\n"))
+		CloseOk(&conn, strings.Join(users, "\n"), nil)
 		break
 
 	// Desloga o usuário.
 	// ====================>
 	case ChatGo.Logout:
-		if u := userDB[online[connAddress]]; u != nil {
+		if u := userDB[online[input[1]]]; u == nil {
 			CloseErr(&conn, errors.New("incorrect username"))
 			return
 		}
-		if online[connAddress] == "" {
+		if online[input[1]] == "" {
 			CloseErr(&conn, errors.New("you are not logged in"))
 			return
 		}
-		delete(online, connAddress)
+		delete(online, input[1])
+		CloseOk(&conn, "logout complete", nil)
 		break
 
 	// Lida com comandos não reconhecidos.
 	// ======================================>
 	default:
-		ChatGo.WriteLog(ChatGo.LogWarn, "unrecognized command: "+buf, "")
+		ChatGo.WriteLog(ChatGo.LogWarn, "unrecognized command: "+command.GetUserInput(), "")
 		CloseErr(&conn, errors.New("this command is invalid"))
 		return
 	}
@@ -226,7 +243,7 @@ func Cleanup(sigs chan os.Signal) {
 		return *t
 	})
 	j, _ := json.Marshal(list)
-	err := os.WriteFile(filePath, j, 0777)
+	err := os.WriteFile(userCache, j, 0777)
 	if err != nil {
 		ChatGo.EmitError(err, "")
 		os.Exit(1)
@@ -236,8 +253,14 @@ func Cleanup(sigs chan os.Signal) {
 
 // CloseOk responde para o client uma mensagem simples
 // ========================================================>
-func CloseOk(conn *net.Conn, msg string) {
-	_, err := (*conn).Write([]byte("ok -m " + msg))
+func CloseOk(conn *net.Conn, msg string, session *string) {
+	var prefix, sessionId = "ok", ""
+	if session != nil {
+		prefix = "session"
+		sessionId = " " + *session
+	}
+	res := fmt.Sprintf("%s%s -m %s", prefix, sessionId, msg)
+	_, err := (*conn).Write([]byte(res))
 	if err != nil {
 		ChatGo.WriteLog(ChatGo.LogErr, err.Error(), "internal")
 		err = nil

@@ -1,6 +1,7 @@
 /.idea/
-/users.json
+/.cache/users.json
 /mainBot
 /mainClient
 /mainServer
 /cmd/
+/.cache/
