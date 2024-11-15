@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/crypto/ssh/terminal"
 	"math"
 	"net"
@@ -12,6 +13,21 @@ import (
 	"runtime"
 	"strings"
 )
+
+func TryMatch(original, attempt string) error {
+	if err := bcrypt.CompareHashAndPassword([]byte(original), []byte(attempt)); err != nil {
+		return err
+	}
+	return nil
+}
+
+func Bcrypt(word string) (string, error) {
+	ret, err := bcrypt.GenerateFromPassword([]byte(word), bcrypt.DefaultCost)
+	if err != nil {
+		return "", err
+	}
+	return string(ret), nil
+}
 
 func GetHiddenInput() string {
 	println(" > Por favor, digite sua senha.")
@@ -50,14 +66,13 @@ func ClearConsole() {
 func GetUser(input string) (User, error) {
 	vec := strings.Split(input, " ")
 	if len(vec) != 4 || vec[1] != "-u" || vec[3] != "-p" {
-		return NullUser(), errors.New(InvalidLoginComendMsg)
+		return NullUser(), errors.New(InvalidLoginCommandMsg)
 	}
 	return NewUser(vec[2], GetHiddenInput()), nil
 }
 
 func EmitError(err error, origin string) {
 	WriteLog(LogErr, err.Error(), origin)
-	println(OperationCancelMsg)
 }
 
 func HslToRgb(h, s, l float64) (int, int, int) {
@@ -115,8 +130,9 @@ func PrintHelp(isLogged bool) {
 		sb.WriteString("   - login -u <USER_NAME> -p: Login to server.\n")
 		sb.WriteString("   - signup -u <USER_NAME> -p: SignUp to server.\n")
 	} else {
-		sb.WriteString("   - msg: Logout from the server.\n")
-		sb.WriteString("   - hidden <TARGET_USER>: Logout from the server.\n")
+		sb.WriteString("   - logout: Logout from the server.\n")
+		sb.WriteString("   - msg: Send a simple message.\n")
+		sb.WriteString("   - hidden <TARGET_USER>: Send a hidden message to someone.\n")
 		sb.WriteString("   - users: List all online users.\n")
 	}
 	sb.WriteString("   - help: Get help panel.\n")

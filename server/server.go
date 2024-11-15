@@ -3,11 +3,13 @@ package main
 import (
 	ChatGo "chatGo/share"
 	"encoding/json"
-	"errors"
 	"fmt"
 	mgu "github.com/artking28/myGoUtils"
+	"github.com/google/uuid"
+	//"github.com/google/uuid"
 	"net"
 	"os"
+	//"os/exec"
 	"os/signal"
 	"strings"
 	"syscall"
@@ -67,7 +69,7 @@ func main() {
 	// ================================================================>
 	defer func() {
 		if r := recover(); r != nil {
-			fmt.Println("Recuperado de um panic:", r)
+			ChatGo.WriteLog(ChatGo.LogInfo, "Recovering panic...", "")
 		}
 		sigs <- syscall.SIGABRT
 	}()
@@ -82,6 +84,8 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+
+	ChatGo.WriteLog(ChatGo.LogOk, "Server started with success", "")
 
 	// For para capturar chamadas do client
 	// ========================================>
@@ -114,22 +118,23 @@ func handleConnection(conn net.Conn, buf []byte) {
 	if len(buf) == 0 {
 		_, err := conn.Write([]byte(ChatGo.EmptyMessageMsg))
 		if err != nil {
-			ChatGo.WriteLog(ChatGo.LogErr, err.Error(), "internal")
+			ChatGo.WriteLog(ChatGo.LogErr, err.Error(), "")
 			err = nil
 		}
 		err = conn.Close()
 		if err != nil {
-			ChatGo.WriteLog(ChatGo.LogErr, err.Error(), "internal")
+			ChatGo.WriteLog(ChatGo.LogErr, err.Error(), "")
 		}
 		return
 	}
 	command := ChatGo.Parse(buf)
+	input := strings.Split(command.Content, " ")
 
 	// Registra um log de comandos de usuários.
 	// ==============================================================>
 	s := fmt.Sprintf("from: [%s%s%s] command: [%s%s%s]",
 		ChatGo.DGray, connAddress, ChatGo.Reset,
-		ChatGo.DGray, command.GetUserInput(), ChatGo.Reset,
+		ChatGo.DGray, command.Content, ChatGo.Reset,
 	)
 	ChatGo.WriteLog(ChatGo.LogInfo, s, "")
 
@@ -138,99 +143,141 @@ func handleConnection(conn net.Conn, buf []byte) {
 	// Começa o login de um usuário
 	// ================================================>
 	case ChatGo.Login:
-		if u := userDB[input[2]]; u == nil || u.Password != input[4] {
-			CloseErr(&conn, errors.New("incorrect username or password"))
+		if u := userDB[input[2]]; u == nil || ChatGo.TryMatch(u.Password, input[4]) != nil {
+			Close(&conn, "incorrect username or password", ChatGo.StatusError)
 			return
 		}
+		u, err := uuid.NewUUID()
+		if err != nil {
+			ChatGo.EmitError(err, "")
+			Close(&conn, err.Error(), ChatGo.StatusError)
+		}
+		tk := u.String()
 		tc.Lock()
-		online[command.Token] = input[2]
+		online[tk] = input[2]
+		msgStack[input[2]] = []string{}
 		tc.Unlock()
-		CloseOk(&conn, "sign-in complete!", &command.Token)
+		Close(&conn, tk, ChatGo.StatusSuccess)
 		break
 
 	// Começa o processo de sign-in e ja loga o usuário se bem-sucedido
 	// ===================================================================>
 	case ChatGo.SignUp:
 		if u := userDB[input[2]]; u != nil {
-			CloseErr(&conn, errors.New("this username is already taken"))
+			Close(&conn, "this username is already taken", ChatGo.StatusError)
 			return
 		}
+		u, err := uuid.NewUUID()
+		if err != nil {
+			ChatGo.EmitError(err, "")
+			Close(&conn, err.Error(), ChatGo.StatusError)
+		}
+		hash, err := ChatGo.Bcrypt(input[4])
+		if err != nil {
+			ChatGo.EmitError(err, "")
+			Close(&conn, err.Error(), ChatGo.StatusError)
+		}
+		input[4] = hash
+		tk := u.String()
 		tc.Lock()
 		userDB[input[2]] = mgu.Ptr(ChatGo.NewUser(input[2], input[4]))
-		online[sessionID] = input[2]
+		online[tk] = input[2]
+		msgStack[input[2]] = []string{}
 		tc.Unlock()
-		CloseOk(&conn, "sign-up complete! You are now automatically logged in", &sessionID)
+		Close(&conn, tk, ChatGo.StatusSuccess)
 		break
 
 	case ChatGo.Fetch:
-		uOrigin := userDB[online[sessionID]]
+		if online[command.Token] == "" {
+			Close(&conn, "unauthorized, missing token", ChatGo.StatusError)
+		}
+		tc.Lock()
+		uOrigin := userDB[online[command.Token]]
 		if uOrigin != nil {
 			messages := msgStack[uOrigin.Name]
-			CloseOk(&conn, strings.Join(messages, "\n"), nil)
+			msgStack[uOrigin.Name] = []string{}
+			Close(&conn, strings.Join(messages, "\n"), ChatGo.StatusSuccess)
+			tc.Unlock()
 			break
 		}
-		CloseOk(&conn, "", nil)
+		tc.Unlock()
+		Close(&conn, "", ChatGo.StatusSuccess)
 		break
 
-	case ChatGo.Refresh:
+	//case ChatGo.Refresh:
 
 	// Envia uma mensagem pata o chat global.
 	// ======================================================>
 	case ChatGo.Message:
-		u := userDB[online[sessionID]]
+		if online[command.Token] == "" {
+			Close(&conn, "unauthorized, missing token", ChatGo.StatusError)
+		}
+		u := userDB[online[command.Token]]
 		msg := fmt.Sprintf("%s%s: %s", ChatGo.Bold, ChatGo.WrapColor(u.Name, u.Color), input[1])
 		tc.Lock()
 		for k := range msgStack {
 			msgStack[k] = append(msgStack[k], msg)
 		}
 		tc.Unlock()
-		CloseOk(&conn, "hidden message sent", nil)
+		Close(&conn, "message sent", ChatGo.StatusSuccess)
 		break
 
 	// Envia uma mensagem oculta de um usuário para outro
 	// ======================================================>
 	case ChatGo.Hidden:
-		uOrigin := userDB[online[sessionID]]
+		if online[command.Token] == "" {
+			Close(&conn, "unauthorized, missing token", ChatGo.StatusError)
+		}
+		u := userDB[online[command.Token]]
 		uTarget := userDB[input[1]].Name
-		msg := fmt.Sprintf("%s(private)%s %s%s:",
-			ChatGo.DGray, ChatGo.Reset, ChatGo.Bold,
-			ChatGo.WrapColor(uOrigin.Name, uOrigin.Color),
+		msg := fmt.Sprintf("%s(private)%s %s%s: ", ChatGo.DGray, ChatGo.Reset, ChatGo.Bold,
+			ChatGo.WrapColor(u.Name, u.Color),
 		)
 		msg += input[2]
 		tc.Lock()
-		msgStack[uOrigin.Name] = append(msgStack[uOrigin.Name], msg)
+		msgStack[u.Name] = append(msgStack[u.Name], msg)
 		msgStack[uTarget] = append(msgStack[uTarget], msg)
 		tc.Unlock()
-		CloseOk(&conn, "message sent", nil)
+		Close(&conn, "hidden message sent", ChatGo.StatusSuccess)
 		break
 
 	// Lista todos os usuários logados para os usuários
 	// ====================================================>
 	case ChatGo.Users:
+		if online[command.Token] == "" {
+			Close(&conn, "unauthorized, missing token", ChatGo.StatusError)
+		}
 		users := mgu.MapValues(online)
-		CloseOk(&conn, strings.Join(users, "\n"), nil)
+		Close(&conn, strings.Join(users, "\n"), ChatGo.StatusSuccess)
 		break
 
 	// Desloga o usuário.
 	// ====================>
 	case ChatGo.Logout:
-		if u := userDB[online[input[1]]]; u == nil {
-			CloseErr(&conn, errors.New("incorrect username"))
+		name := online[command.Token]
+		if name == "" {
+			Close(&conn, "you are not logged in", ChatGo.StatusError)
 			return
 		}
-		if online[input[1]] == "" {
-			CloseErr(&conn, errors.New("you are not logged in"))
+		if u := userDB[name]; u == nil {
+			Close(&conn, "incorrect username", ChatGo.StatusError)
 			return
 		}
-		delete(online, input[1])
-		CloseOk(&conn, "logout complete", nil)
+		tc.Lock()
+		delete(msgStack, command.Token)
+		for k := range msgStack {
+			msgStack[k] = append(msgStack[k], online[command.Token]+" logged out!")
+		}
+		tc.Unlock()
+		delete(online, command.Token)
+		Close(&conn, "logout complete", ChatGo.StatusSuccess)
 		break
 
 	// Lida com comandos não reconhecidos.
 	// ======================================>
 	default:
-		ChatGo.WriteLog(ChatGo.LogWarn, "unrecognized command: "+command.GetUserInput(), "")
-		CloseErr(&conn, errors.New("this command is invalid"))
+		ChatGo.WriteLog(ChatGo.LogWarn, "unrecognized command: "+command.Content, "")
+		Close(&conn, "this command is invalid", ChatGo.StatusError)
 		return
 	}
 }
@@ -251,28 +298,12 @@ func Cleanup(sigs chan os.Signal) {
 	os.Exit(0)
 }
 
-// CloseOk responde para o client uma mensagem simples
+// Close responde para o client uma mensagem simples
 // ========================================================>
-func CloseOk(conn *net.Conn, msg string, session *string) {
-	var prefix, sessionId = "ok", ""
-	if session != nil {
-		prefix = "session"
-		sessionId = " " + *session
-	}
-	res := fmt.Sprintf("%s%s -m %s", prefix, sessionId, msg)
-	_, err := (*conn).Write([]byte(res))
+func Close(conn *net.Conn, content string, status int) {
+	res := ChatGo.CreateMsg(ChatGo.Response, "", content, status)
+	_, err := (*conn).Write([]byte(res.String()))
 	if err != nil {
-		ChatGo.WriteLog(ChatGo.LogErr, err.Error(), "internal")
-		err = nil
-	}
-}
-
-// CloseErr responde para o client uma mensagem de erro
-// ========================================================>
-func CloseErr(conn *net.Conn, errMsg error) {
-	_, err := (*conn).Write([]byte("error -m " + errMsg.Error()))
-	if err != nil {
-		ChatGo.WriteLog(ChatGo.LogErr, err.Error(), "internal")
-		err = nil
+		ChatGo.WriteLog(ChatGo.LogErr, err.Error(), "")
 	}
 }

@@ -12,7 +12,6 @@ const (
 	Hidden  = "hidden"
 	Users   = "users"
 	Logout  = "logout"
-	Fetch   = "fetch"
 	Refresh = "refresh"
 )
 
@@ -21,6 +20,12 @@ const (
 	Help  = "help"
 	Exit  = "exit"
 	Clear = "clear"
+)
+
+// Comandos automáticos usados pelos programas e não pelo usuário
+const (
+	Fetch    = "fetch"
+	Response = "response"
 )
 
 const (
@@ -37,13 +42,11 @@ const (
 
 // Mensagens do client
 const (
-	WelcomeMsg            = " > Olá, bem vindo ao ChatGo, digite algo pra começar." + Reset
-	UnexpectMsg           = " > Esse comando não existe, digite novamente. Se tiver dúvidas digite " + Bold + "`help`" + Reset
-	OperationCancelMsg    = " > Comando cancelado."
-	SuccessMsg            = " > Comando bem sucedido, você já pode digitar mensagens. Lembrando que se tiver duvidas digite: " + Bold + "`help`" + Reset
-	AlreadyLoggedInMsg    = " > Você já está logado. Saia primeiro antes de realizar essa ação."
-	InvalidLoginComendMsg = " > Seu comando de login é inválido, revise e tente novamente. Se tiver duvidas, digite " + Bold + "`help`" + Reset
-	NotLoggedInMsg        = " > Você não está logado. Realize o login primeiro."
+	WelcomeMsg             = " > Olá, bem vindo ao ChatGo, digite algo pra começar." + Reset
+	UnexpectMsg            = " > Esse comando não existe, digite novamente. Se tiver dúvidas digite " + Bold + "`help`" + Reset
+	AlreadyLoggedInMsg     = " > Você já está logado. Saia primeiro antes de realizar essa ação."
+	InvalidLoginCommandMsg = " > Seu comando de login é inválido, revise e tente novamente. Se tiver duvidas, digite " + Bold + "`help`" + Reset
+	NotLoggedInMsg         = " > Você não está logado. Realize o login primeiro."
 )
 
 // Mensagens do server

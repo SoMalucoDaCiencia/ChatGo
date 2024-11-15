@@ -13,6 +13,16 @@ type ConnMsg struct {
 	Status  int
 }
 
+func CreateEmptyMsg(ctl string, token string, status int) ConnMsg {
+	content := fmt.Sprintf("%s [token: %s]", ctl, token)
+	return ConnMsg{
+		Control: ctl,
+		Status:  status,
+		Token:   token,
+		Content: content,
+	}
+}
+
 func CreateMsg(ctl string, token, content string, status int) ConnMsg {
 	return ConnMsg{
 		Control: ctl,
@@ -40,10 +50,6 @@ func Parse(bytes []byte) ConnMsg {
 	}
 	ret.Content = strings.Split(sBytes, "@")[1]
 	return ret
-}
-
-func (this ConnMsg) GetUserInput() string {
-	return fmt.Sprintf("%s %s", this.Control, this.Content)
 }
 
 func (this ConnMsg) String() string {

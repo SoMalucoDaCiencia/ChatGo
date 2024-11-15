@@ -22,6 +22,7 @@ func main() {
 	// Conexão aberta
 	// ================>
 	var conn net.Conn
+	var line int
 
 	// Canal para capturar os sinais
 	// ===============================>
@@ -45,15 +46,36 @@ func main() {
 	// =============================================================>
 	go func() {
 		for {
-			if localUser.IsLogged() {
-				msg := ChatGo.CreateMsg(ChatGo.Fetch, *localUser.SessionId, "", ChatGo.StatusNeutral)
-				_, err := SendServer(msg)
-				if err != nil && err.Error() != "you are not logged in" {
-					ChatGo.EmitError(err, "")
-					os.Exit(1)
-				}
-			}
 			time.Sleep(500 * time.Millisecond)
+			if !localUser.IsLogged() {
+				continue
+			}
+			msg := ChatGo.CreateEmptyMsg(ChatGo.Fetch, *localUser.SessionId, ChatGo.StatusNeutral)
+			_, res, err := SendServer(msg)
+			if err != nil {
+				if strings.Contains(err.Error(), "dial tcp") {
+					ChatGo.WriteLog(ChatGo.LogInfo, "server connection has been lost for an unknown reason", "")
+					localUser = ChatGo.NullUser()
+				} else {
+					ChatGo.EmitError(err, "server")
+				}
+				var u string
+				if localUser.IsLogged() {
+					u = fmt.Sprintf("[%s] ", localUser.Name)
+				}
+				line += 1
+				fmt.Printf("%sChatGo(%d) %s> %s", ChatGo.Bold, line, u, ChatGo.Reset)
+				continue
+			}
+			if len(res) > 0 {
+				println("\r", res, strings.Repeat(" ", 10))
+				var u string
+				if localUser.IsLogged() {
+					u = fmt.Sprintf("[%s] ", localUser.Name)
+				}
+				line += 1
+				fmt.Printf("%sChatGo(%d) %s> %s", ChatGo.Bold, line, u, ChatGo.Reset)
+			}
 		}
 	}()
 
@@ -61,13 +83,13 @@ func main() {
 	// ========================================>
 	println(ChatGo.WelcomeMsg)
 	scanner := bufio.NewScanner(os.Stdin)
-	for i := 1; ; i++ {
+	for ; ; line++ {
 		var err error
 		var u string
 		if localUser.IsLogged() {
 			u = fmt.Sprintf("[%s] ", localUser.Name)
 		}
-		fmt.Printf("%sChatGo(%d) %s> %s", ChatGo.Bold, i, u, ChatGo.Reset)
+		fmt.Printf("%sChatGo(%d) %s> %s", ChatGo.Bold, line, u, ChatGo.Reset)
 		if !scanner.Scan() {
 			ChatGo.EmitError(scanner.Err(), "")
 		}
@@ -91,11 +113,19 @@ func main() {
 				continue
 			}
 			original = original + " " + localUser.Password
-			msg := ChatGo.CreateMsg(ChatGo.SignUp, "", strings.Join(input[1:], " "), ChatGo.StatusNeutral)
-			if conn, err = SendServer(msg); err != nil {
+			msg := ChatGo.CreateMsg(ChatGo.SignUp, "", original, ChatGo.StatusNeutral)
+			var tk string
+			if conn, tk, err = SendServer(msg); err != nil {
+				if strings.Contains(err.Error(), "dial tcp") {
+					ChatGo.WriteLog(ChatGo.LogInfo, "bad connection or offline server", "")
+					localUser = ChatGo.NullUser()
+					continue
+				}
 				ChatGo.EmitError(err, "server")
 				localUser = ChatGo.NullUser()
+				continue
 			}
+			localUser.SessionId = &tk
 			break
 
 		// Começa o login caso n haja um usuário logado
@@ -112,16 +142,19 @@ func main() {
 				continue
 			}
 			original = original + " " + localUser.Password
-			msg := ChatGo.CreateMsg(ChatGo.Login, "", strings.Join(input[1:], " "), ChatGo.StatusNeutral)
-			if conn, err = SendServer(msg); err != nil {
+			msg := ChatGo.CreateMsg(ChatGo.Login, "", original, ChatGo.StatusNeutral)
+			var tk string
+			if conn, tk, err = SendServer(msg); err != nil {
 				if strings.Contains(err.Error(), "dial tcp") {
 					ChatGo.WriteLog(ChatGo.LogInfo, "bad connection or offline server", "")
 					localUser = ChatGo.NullUser()
-					break
+					continue
 				}
 				ChatGo.EmitError(err, "server")
 				localUser = ChatGo.NullUser()
+				continue
 			}
+			localUser.SessionId = &tk
 			break
 
 		// Desloga o usuário.
@@ -131,10 +164,16 @@ func main() {
 				println(ChatGo.NotLoggedInMsg)
 				continue
 			}
-			msg := ChatGo.CreateMsg(ChatGo.Logout, *localUser.SessionId, "", ChatGo.StatusNeutral)
-			conn, err = SendServer(msg)
+			msg := ChatGo.CreateEmptyMsg(ChatGo.Logout, *localUser.SessionId, ChatGo.StatusNeutral)
+			conn, _, err = SendServer(msg)
 			if err != nil && err.Error() != "you are not logged in" {
-				ChatGo.EmitError(err, "")
+				if strings.Contains(err.Error(), "dial tcp") {
+					ChatGo.WriteLog(ChatGo.LogInfo, "bad connection or offline server", "")
+					localUser = ChatGo.NullUser()
+					continue
+				}
+				ChatGo.EmitError(err, "server")
+				localUser = ChatGo.NullUser()
 				continue
 			}
 			localUser = ChatGo.NullUser()
@@ -157,9 +196,19 @@ func main() {
 				println(ChatGo.NotLoggedInMsg)
 				continue
 			}
-			msg := ChatGo.CreateMsg(input[0], "", strings.Join(input[1:], " "), ChatGo.StatusNeutral)
-			if conn, err = SendServer(msg); err != nil {
+			msg := ChatGo.CreateMsg(input[0], *localUser.SessionId, original, ChatGo.StatusNeutral)
+			var res string
+			if conn, res, err = SendServer(msg); err != nil {
+				if strings.Contains(err.Error(), "dial tcp") {
+					ChatGo.WriteLog(ChatGo.LogInfo, "bad connection or offline server", "")
+					localUser = ChatGo.NullUser()
+					continue
+				}
 				ChatGo.EmitError(err, "server")
+				continue
+			}
+			if input[0] == ChatGo.Users {
+				println(res)
 			}
 			break
 
@@ -179,10 +228,15 @@ func main() {
 		// =====================>
 		case ChatGo.Exit:
 			if localUser.IsLogged() {
-				msg := ChatGo.CreateMsg(ChatGo.Logout, *localUser.SessionId, "", ChatGo.StatusNeutral)
-				if conn, err = SendServer(msg); err != nil {
+				msg := ChatGo.CreateEmptyMsg(ChatGo.Logout, *localUser.SessionId, ChatGo.StatusNeutral)
+				if conn, _, err = SendServer(msg); err != nil {
+					if strings.Contains(err.Error(), "dial tcp") {
+						ChatGo.WriteLog(ChatGo.LogInfo, "bad connection or offline server", "")
+						localUser = ChatGo.NullUser()
+						continue
+					}
 					ChatGo.EmitError(err, "server")
-					ChatGo.WriteLog(ChatGo.LogErr, "falha ao realizar logout para sair", "internal")
+					localUser = ChatGo.NullUser()
 					continue
 				}
 				localUser = ChatGo.NullUser()
@@ -198,40 +252,41 @@ func main() {
 	}
 }
 
-func SendServer(content ChatGo.ConnMsg) (net.Conn, error) {
+func SendServer(content ChatGo.ConnMsg) (net.Conn, string, error) {
 
 	conn, err := net.Dial("tcp", ":1110")
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	_, err = conn.Write([]byte(content.String()))
 	if err != nil {
 		ChatGo.EmitError(err, "server")
+		return nil, "", err
 	}
 
 	reply := make([]byte, ChatGo.ServerBuffer)
 	_, err = conn.Read(reply)
 	if err != nil {
 		ChatGo.EmitError(err, "server")
+		return nil, "", err
 	}
 
 	resp := ChatGo.Parse(reply)
 	switch resp.Status {
 	case ChatGo.StatusSuccess:
-		println(resp.Content)
-		return conn, nil
+		return conn, resp.Content, nil
 	case ChatGo.StatusError:
-		return conn, errors.New(resp.Content)
+		return conn, "", errors.New(resp.Content)
 	}
-	return conn, nil
+	return conn, resp.Content, nil
 }
 
 func Cleanup(sigs chan os.Signal) {
 	<-sigs
 	if localUser.IsLogged() {
-		ChatGo.CreateMsg("ChatGo.Logout", *localUser.SessionId, "", ChatGo.StatusNeutral)
-		_, err := SendServer("logout "+*localUser.SessionId, localUser)
+		msg := ChatGo.CreateEmptyMsg(ChatGo.Logout, *localUser.SessionId, ChatGo.StatusNeutral)
+		_, _, err := SendServer(msg)
 		if err != nil && err.Error() != "you are not logged in" {
 			ChatGo.EmitError(err, "")
 			os.Exit(1)
