@@ -25,6 +25,8 @@ const (
 	Reset  string = "\033[0m"
 )
 
+// WriteLog padroniza o log do server e do client
+// =================================================>
 func WriteLog(kind MsgKind, msg string, origin string) {
 	if len(origin) == 0 {
 		origin = "internal"

@@ -12,7 +12,6 @@ const (
 	Hidden  = "hidden"
 	Users   = "users"
 	Logout  = "logout"
-	Refresh = "refresh"
 )
 
 // Comandos permitidos a qualquer momento

@@ -6,10 +6,8 @@ import (
 	"fmt"
 	mgu "github.com/artking28/myGoUtils"
 	"github.com/google/uuid"
-	//"github.com/google/uuid"
 	"net"
 	"os"
-	//"os/exec"
 	"os/signal"
 	"strings"
 	"syscall"
@@ -18,24 +16,25 @@ import (
 var (
 	cachePath = ".cache"
 	userCache = fmt.Sprintf("%s%cusers.json", cachePath, os.PathSeparator)
-	msgCache  = fmt.Sprintf("%s%cmessages.txt", cachePath, os.PathSeparator)
 
 	// map[username]User
+	// Todos os usuários colocados em memória pelo nome
 	userDB = map[string]*ChatGo.User{}
 
 	// map[address]username
+	// Todas as sessions guardadas por um UUID
 	online = map[string]string{}
 
-	//all = []string
-
+	// Pilha de mensagens pendentes de cada usuário referenciada pelo nome
 	msgStack = map[string][]string{}
 
+	// Meu controle de threads customizado usado em vários dos meus projetos, você pode checar em "github.com/artking28/myGoUtils"
 	tc = mgu.NewThreadControl(200)
 )
 
 func main() {
 
-	// Salva o "cache" de usuários em memória
+	// Carrega o "cache" de usuários em memória
 	// ===========================================>
 	err := os.MkdirAll(".cache", 0777)
 	if err != nil {
@@ -98,10 +97,11 @@ func main() {
 		buf := make([]byte, ChatGo.ClientBuffer)
 		_, err = conn.Read(buf)
 		if err != nil {
-			ChatGo.EmitError(err, "")
+			ChatGo.WriteLog(ChatGo.LogErr, err.Error(), "")
 			continue
 		}
 
+		// Lida com as conexões por concorrência
 		tc.Begin()
 		go func() {
 			handleConnection(conn, buf)
@@ -149,7 +149,7 @@ func handleConnection(conn net.Conn, buf []byte) {
 		}
 		u, err := uuid.NewUUID()
 		if err != nil {
-			ChatGo.EmitError(err, "")
+			ChatGo.WriteLog(ChatGo.LogErr, err.Error(), "")
 			Close(&conn, err.Error(), ChatGo.StatusError)
 		}
 		tk := u.String()
@@ -169,12 +169,12 @@ func handleConnection(conn net.Conn, buf []byte) {
 		}
 		u, err := uuid.NewUUID()
 		if err != nil {
-			ChatGo.EmitError(err, "")
+			ChatGo.WriteLog(ChatGo.LogErr, err.Error(), "")
 			Close(&conn, err.Error(), ChatGo.StatusError)
 		}
 		hash, err := ChatGo.Bcrypt(input[4])
 		if err != nil {
-			ChatGo.EmitError(err, "")
+			ChatGo.WriteLog(ChatGo.LogErr, err.Error(), "")
 			Close(&conn, err.Error(), ChatGo.StatusError)
 		}
 		input[4] = hash
@@ -213,10 +213,12 @@ func handleConnection(conn net.Conn, buf []byte) {
 			Close(&conn, "unauthorized, missing token", ChatGo.StatusError)
 		}
 		u := userDB[online[command.Token]]
-		msg := fmt.Sprintf("%s%s: %s", ChatGo.Bold, ChatGo.WrapColor(u.Name, u.Color), input[1])
+		msg := u.GetMessage(strings.Join(input[1:], " "), false)
 		tc.Lock()
 		for k := range msgStack {
-			msgStack[k] = append(msgStack[k], msg)
+			if k != u.Name {
+				msgStack[k] = append(msgStack[k], msg)
+			}
 		}
 		tc.Unlock()
 		Close(&conn, "message sent", ChatGo.StatusSuccess)
@@ -230,10 +232,7 @@ func handleConnection(conn net.Conn, buf []byte) {
 		}
 		u := userDB[online[command.Token]]
 		uTarget := userDB[input[1]].Name
-		msg := fmt.Sprintf("%s(private)%s %s%s: ", ChatGo.DGray, ChatGo.Reset, ChatGo.Bold,
-			ChatGo.WrapColor(u.Name, u.Color),
-		)
-		msg += input[2]
+		msg := u.GetMessage(strings.Join(input[2:], " "), true)
 		tc.Lock()
 		msgStack[u.Name] = append(msgStack[u.Name], msg)
 		msgStack[uTarget] = append(msgStack[uTarget], msg)
@@ -292,7 +291,7 @@ func Cleanup(sigs chan os.Signal) {
 	j, _ := json.Marshal(list)
 	err := os.WriteFile(userCache, j, 0777)
 	if err != nil {
-		ChatGo.EmitError(err, "")
+		ChatGo.WriteLog(ChatGo.LogErr, err.Error(), "")
 		os.Exit(1)
 	}
 	os.Exit(0)

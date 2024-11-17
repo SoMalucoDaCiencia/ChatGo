@@ -7,20 +7,14 @@ import (
 	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/crypto/ssh/terminal"
 	"math"
-	"net"
 	"os"
 	"os/exec"
 	"runtime"
 	"strings"
 )
 
-func TryMatch(original, attempt string) error {
-	if err := bcrypt.CompareHashAndPassword([]byte(original), []byte(attempt)); err != nil {
-		return err
-	}
-	return nil
-}
-
+// Bcrypt encripta uma string usando o "bcript"
+// ===============================================>
 func Bcrypt(word string) (string, error) {
 	ret, err := bcrypt.GenerateFromPassword([]byte(word), bcrypt.DefaultCost)
 	if err != nil {
@@ -29,6 +23,17 @@ func Bcrypt(word string) (string, error) {
 	return string(ret), nil
 }
 
+// TryMatch compara um hash e uma string pura
+// =============================================>
+func TryMatch(original, attempt string) error {
+	if err := bcrypt.CompareHashAndPassword([]byte(original), []byte(attempt)); err != nil {
+		return err
+	}
+	return nil
+}
+
+// GetHiddenInput pega uma senha pelo terminal escondendo o conteúdo
+// ===================================================================>
 func GetHiddenInput() string {
 	println(" > Por favor, digite sua senha.")
 	bytes, err := terminal.ReadPassword(int(os.Stdin.Fd()))
@@ -49,6 +54,8 @@ func GetHiddenInput() string {
 	return fmt.Sprintf("%x", h.Sum(nil))
 }
 
+// ClearConsole limpa o console do terminal
+// ===================================================================>
 func ClearConsole() {
 	var cmd *exec.Cmd
 	if runtime.GOOS == "windows" {
@@ -59,10 +66,12 @@ func ClearConsole() {
 	cmd.Stdout = os.Stdout
 	err := cmd.Run()
 	if err != nil {
-		EmitError(err, "internal")
+		WriteLog(LogErr, err.Error(), "")
 	}
 }
 
+// GetUser simula um "form" pelo terminal e monta a struct de usuário
+// ===================================================================>
 func GetUser(input string) (User, error) {
 	vec := strings.Split(input, " ")
 	if len(vec) != 4 || vec[1] != "-u" || vec[3] != "-p" {
@@ -71,10 +80,8 @@ func GetUser(input string) (User, error) {
 	return NewUser(vec[2], GetHiddenInput()), nil
 }
 
-func EmitError(err error, origin string) {
-	WriteLog(LogErr, err.Error(), origin)
-}
-
+// HslToRgb converte HSL pra RGB
+// =================================>
 func HslToRgb(h, s, l float64) (int, int, int) {
 	c := (1 - math.Abs(2*l-1)) * s
 	x := c * (1 - math.Abs(math.Mod(h/60.0, 2)-1))
@@ -96,33 +103,19 @@ func HslToRgb(h, s, l float64) (int, int, int) {
 		r, g, b = c, 0, x
 	}
 
-	r = (r + m) * 255
-	g = (g + m) * 255
-	b = (b + m) * 255
-
+	r, g, b = (r+m)*255, (g+m)*255, (b+m)*255
 	return int(r), int(g), int(b)
 }
 
+// WrapColor colore uma string usando a refêrencia de hude do HSL, fixando a saturação em 1 e a luminosidade em 0.9
+// ===================================================================================================================>
 func WrapColor(name string, colorByte byte) string {
-	// Converte o hue para RGB com saturação de 80% e luminosidade de 90%
-	r, g, b := HslToRgb(float64(colorByte), 0.8, 0.9)
-
-	// Formata a string com a cor RGB gerada
+	r, g, b := HslToRgb(float64(colorByte), 1, 0.9)
 	return fmt.Sprintf("\033[38;2;%d;%d;%dm%s\033[0m", r, g, b, name)
 }
 
-func EnsureConn(conn *net.Conn) error {
-	if conn != nil {
-		return nil
-	}
-	c, err := net.Dial("tcp", ":1110")
-	if err != nil {
-		return err
-	}
-	conn = &c
-	return nil
-}
-
+// PrintHelp imprime referencias de como usar o client
+// =====================================================>
 func PrintHelp(isLogged bool) {
 	sb := strings.Builder{}
 	sb.WriteString(" > Commands:\n")

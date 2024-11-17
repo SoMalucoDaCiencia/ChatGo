@@ -6,21 +6,21 @@ import (
 	"strings"
 )
 
+// ConnMsg struct representa uma mensagem entre client e servidor
+// =================================================================>
 type ConnMsg struct {
-	Control string
-	Token   string
-	Content string
-	Status  int
-}
 
-func CreateEmptyMsg(ctl string, token string, status int) ConnMsg {
-	content := fmt.Sprintf("%s [token: %s]", ctl, token)
-	return ConnMsg{
-		Control: ctl,
-		Status:  status,
-		Token:   token,
-		Content: content,
-	}
+	// Control tipo de comando(login, signup, etc...)
+	Control string
+
+	// Token Session uuid, se houver algum
+	Token string
+
+	// Content é conteúdo, parecido com um "body" do http
+	Content string
+
+	// Status de resposta do servidor
+	Status int
 }
 
 func CreateMsg(ctl string, token, content string, status int) ConnMsg {
@@ -32,6 +32,8 @@ func CreateMsg(ctl string, token, content string, status int) ConnMsg {
 	}
 }
 
+// Parse interpreta os bytes para uma struct
+// =============================================>
 func Parse(bytes []byte) ConnMsg {
 	sBytes := strings.ReplaceAll(string(bytes), "\x00", "")
 	ret := ConnMsg{}
@@ -52,6 +54,8 @@ func Parse(bytes []byte) ConnMsg {
 	return ret
 }
 
+// String transforma a struct na string a ser escrita na comunicação
+// ====================================================================>
 func (this ConnMsg) String() string {
 	return fmt.Sprintf("Control %s\nToken %s\nStatus %d\n@%s", this.Control, this.Token, this.Status, this.Content)
 }
