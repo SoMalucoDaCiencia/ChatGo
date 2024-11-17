@@ -23,6 +23,16 @@ type ConnMsg struct {
 	Status int
 }
 
+func CreateEmptyMsg(ctl string, token string, status int) ConnMsg {
+	content := fmt.Sprintf("%s [token: %s]", ctl, token)
+	return ConnMsg{
+		Control: ctl,
+		Status:  status,
+		Token:   token,
+		Content: content,
+	}
+}
+
 func CreateMsg(ctl string, token, content string, status int) ConnMsg {
 	return ConnMsg{
 		Control: ctl,
