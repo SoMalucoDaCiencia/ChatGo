@@ -204,7 +204,22 @@ func handleConnection(conn net.Conn, buf []byte) {
 		Close(&conn, "", ChatGo.StatusSuccess)
 		break
 
-	//case ChatGo.Refresh:
+	// Altera o nome do usuário
+	// ===========================>
+	case ChatGo.Changenick:
+		if online[command.Token] == "" {
+			Close(&conn, "unauthorized, missing token", ChatGo.StatusError)
+		}
+		oldName := online[command.Token]
+		u := userDB[oldName]
+		u.Name = input[1]
+		tc.Lock()
+		online[command.Token] = input[1]
+		msgStack[u.Name] = msgStack[oldName]
+		delete(msgStack, oldName)
+		tc.Unlock()
+		Close(&conn, "nick changed", ChatGo.StatusSuccess)
+		break
 
 	// Envia uma mensagem pata o chat global.
 	// ======================================================>

@@ -238,6 +238,28 @@ func main() {
 			}
 			break
 
+		// Altera o nome do usuário
+		// ============================>
+		case ChatGo.Changenick:
+			if !localUser.IsLogged() {
+				println(ChatGo.NotLoggedInMsg)
+				continue
+			}
+			msg := ChatGo.CreateMsg(input[0], *localUser.SessionId, original, ChatGo.StatusNeutral)
+			conn, _, err = SendServer(msg)
+			if err != nil && err.Error() != "you are not logged in" {
+				if strings.Contains(err.Error(), "dial tcp") {
+					ChatGo.WriteLog(ChatGo.LogInfo, "bad connection or offline server", "")
+					localUser = ChatGo.NullUser()
+					continue
+				}
+				ChatGo.WriteLog(ChatGo.LogErr, err.Error(), "server")
+				localUser = ChatGo.NullUser()
+				continue
+			}
+			localUser.Name = input[1]
+			break
+
 		// Mostra um guia simples no console.
 		// ====================================>
 		case ChatGo.Help:

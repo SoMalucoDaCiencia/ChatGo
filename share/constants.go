@@ -8,10 +8,11 @@ const (
 
 // Comandos permitidos após o login
 const (
-	Message = "msg"
-	Hidden  = "hidden"
-	Users   = "users"
-	Logout  = "logout"
+	Message    = "msg"
+	Hidden     = "hidden"
+	Users      = "users"
+	Logout     = "logout"
+	Changenick = "changenick"
 )
 
 // Comandos permitidos a qualquer momento
